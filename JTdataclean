@@ -1,0 +1,23 @@
+--数据清洗模块
+--产生对应时刻的总的均值和方差
+drop table if exists cpl_tempclean;
+create table if not exists cpl_tempclean as 
+select a.*,b.av_travel_time,b.std_travel_time,b.med_travel_time from lzh_all_training_set a left outer join 
+(select link_id,hour,avg(travel_time) as av_travel_time,median(travel_time) as med_travel_time,stddev(travel_time) as std_travel_time from lzh_all_training_set  group by link_id,hour) b
+on (a.link_id =b.link_id and a.hour =b.hour);------加上where来筛选特定节假日期的影响
+--异常值剔除用中位数代替
+drop table if exists cpl_clean_alltrainset;
+create table if not exists cpl_clean_alltrainset as select 
+case when abs((travel_time-av_travel_time)/std_travel_time)>3 then med_travel_time else travel_time end as travel_time_clean
+,link_id,year,month,day,hour,minute,time_start,travel_time,med_travel_time from cpl_tempclean;
+--2017.7月的有些时段的缺失值填充
+drop table if exists cpl_tempnull;
+create table if not exists cpl_tempnull as 
+select a.*,b.travel_time_clean,b.med_travel_time from (select *, hour-1 as hoursub1 from lzh_all_training_set_addtest where year=2017 and month=7 and (hour=8 or hour= 15 or hour=18)) a 
+left outer join (select * from cpl_clean_alltrainset where year=2017 and month=7 and (hour=7 or hour= 14 or hour=17)) b
+on (a.link_id =b.link_id and a.year =b.year and a.month=b.month and a.day =b.day and a.hoursub1=b.hour and a.minute =b.minute);
+
+drop table if exists cpl_clean_7null;
+create table if not exists cpl_clean_7null as select *,
+case when travel_time_clean=null then med_travel_time else travel_time_clean end as travel_time_filled from cpl_tempnull;
+----选择7月份填充后的数据来重新构建特征表
